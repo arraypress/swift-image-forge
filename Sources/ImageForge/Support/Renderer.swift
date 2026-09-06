@@ -11,7 +11,9 @@
 //
 
 import CoreGraphics
+import CoreImage
 import Foundation
+import VideoGrade
 
 /// Pixel work: scaling, turning, mirroring, padding and flattening.
 public enum Renderer {
@@ -195,6 +197,37 @@ public enum Renderer {
         context.interpolationQuality = .high
         context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
         return try finish(context, step: "a conversion to \(target.rawValue)")
+    }
+
+    /// Applies colour and tone to an image.
+    ///
+    /// The grade engine works in Core Image and this library works in
+    /// `CGImage`, so this is the seam between them: one conversion in, the
+    /// engine's own filter chain, one render out.
+    ///
+    /// - Parameters:
+    ///   - image: The image to grade.
+    ///   - grade: What to do to it. A neutral grade returns the image untouched.
+    /// - Returns: The graded image.
+    /// - Throws: ``ImageForgeError/emptyResult(_:)`` when the grade cannot be
+    ///   built — a LUT file that is missing or malformed — or the render fails.
+    public static func grade(_ image: CGImage, _ grade: VideoGrade) throws -> CGImage {
+        guard !grade.isNeutral else { return image }
+        let filter: GradeFilter
+        do {
+            filter = try GradeFilter(grade: grade)
+        } catch {
+            throw ImageForgeError.emptyResult("a grade: \(error.localizedDescription)")
+        }
+        let input = CIImage(cgImage: image)
+        let output = filter.apply(input)
+        // Working space matters: grading in the image's own space keeps a
+        // Display P3 photograph from being quietly squeezed into sRGB.
+        let context = CIContext(options: [.workingColorSpace: usableColorSpace(for: image)])
+        guard let rendered = context.createCGImage(output, from: input.extent) else {
+            throw ImageForgeError.emptyResult("rendering a grade")
+        }
+        return rendered
     }
 
     // MARK: - Contexts

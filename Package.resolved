@@ -1,0 +1,15 @@
+{
+  "originHash" : "12a05bfe1dac555717301a2539f260a3fcffd08f1b00db6ed3d108b7fde8df72",
+  "pins" : [
+    {
+      "identity" : "swift-video-grade",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/arraypress/swift-video-grade.git",
+      "state" : {
+        "revision" : "94c5937449d8fa26033cc232569e8eb9a1c4ade5",
+        "version" : "0.1.1"
+      }
+    }
+  ],
+  "version" : 3
+}

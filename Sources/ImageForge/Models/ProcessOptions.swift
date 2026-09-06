@@ -18,7 +18,7 @@ import Foundation
 ///     encode: .format(.heic, quality: 0.8)
 /// )
 /// ```
-public struct ProcessOptions: Sendable, Codable, Equatable, Hashable {
+public struct ProcessOptions: Sendable, Codable, Equatable {
     /// What to do to the pixels, in order. An empty list is legal and means
     /// "re-encode only", which is how a plain format conversion is written.
     public var operations: [ImageOperation]

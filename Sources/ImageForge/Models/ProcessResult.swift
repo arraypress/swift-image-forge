@@ -12,7 +12,7 @@
 import Foundation
 
 /// The outcome of one image job.
-public struct ProcessResult: Sendable, Codable, Equatable, Hashable {
+public struct ProcessResult: Sendable, Codable, Equatable {
     /// Where the image came from. Nil when the input was raw data.
     public let source: URL?
     /// Where it was written. Nil when the output was returned as data.

@@ -13,6 +13,7 @@
 import CoreGraphics
 import Foundation
 import XCTest
+import VideoGrade
 @testable import ImageForge
 
 final class DetectionTests: XCTestCase {
@@ -162,5 +163,85 @@ final class DetectionTests: XCTestCase {
         XCTAssertEqual(leaning.skewAngle, 5.71, accuracy: 0.05)
         XCTAssertFalse(leaning.isUpright())
         XCTAssertTrue(leaning.isUpright(withinDegrees: 10))
+    }
+}
+
+//
+//  Grading — colour and tone, applied by VideoGrade at the CGImage seam.
+//
+
+final class GradeTests: XCTestCase {
+
+    func testANeutralGradeChangesNothing() throws {
+        let image = TestImages.solid(.red, width: 8, height: 8)
+        let out = try Renderer.grade(image, VideoGrade())
+        XCTAssertTrue(out === image, "a neutral grade should not even render")
+    }
+
+    func testBrightnessActuallyMovesThePixels() throws {
+        let image = TestImages.solid(TestImages.Pixel(r: 100, g: 100, b: 100, a: 255),
+                                     width: 8, height: 8)
+        var grade = VideoGrade()
+        grade.brightness = 0.35
+        let out = try Renderer.grade(image, grade)
+        let before = TestImages.pixel(image, x: 0, y: 0)
+        let after = TestImages.pixel(out, x: 0, y: 0)
+        XCTAssertGreaterThan(Int(after.r), Int(before.r) + 5, "brighter means brighter")
+    }
+
+    func testSaturationCanBeTakenOut() throws {
+        let image = TestImages.solid(.red, width: 8, height: 8)
+        var grade = VideoGrade()
+        grade.saturation = 0
+        let out = try Renderer.grade(image, grade)
+        let pixel = TestImages.pixel(out, x: 0, y: 0)
+        XCTAssertLessThan(abs(Int(pixel.r) - Int(pixel.g)), 20, "desaturated red is grey")
+    }
+
+    func testAGradeRunsInThePipelineAlongsideEverythingElse() throws {
+        var grade = VideoGrade()
+        grade.contrast = 1.2
+        let image = TestImages.noise(width: 40, height: 30)
+        let result = try Pipeline.apply([
+            .resize(ResizeSpec(width: 20, height: 20)),
+            .grade(grade),
+            .flip(.horizontal),
+        ], to: image)
+        XCTAssertEqual(result.pixelSize, CGSize(width: 20, height: 15),
+                       "grading does not change the geometry")
+    }
+
+    func testARecipeCarriesTheWholeLookAsData() throws {
+        // The point of the operation being a value: a recipe file holds the
+        // grade, the LUT it points at, and everything else, in one document.
+        var grade = VideoGrade()
+        grade.exposure = 0.2
+        grade.contrast = 1.15
+        grade.splitShadowAmount = 0.4
+        grade.grain = 0.25
+        grade.lutURL = URL(fileURLWithPath: "/looks/kodak.cube")
+
+        let options = ProcessOptions(
+            operations: [.resize(.longestSide(2048)), .grade(grade)],
+            encode: .format(.heic, quality: 0.85))
+
+        let data = try JSONEncoder().encode(options)
+        let back = try JSONDecoder().decode(ProcessOptions.self, from: data)
+        XCTAssertEqual(back, options)
+
+        guard case .grade(let decoded) = back.operations[1] else {
+            return XCTFail("expected a grade")
+        }
+        XCTAssertEqual(decoded.exposure, 0.2, accuracy: 0.0001)
+        XCTAssertEqual(decoded.lutURL?.lastPathComponent, "kodak.cube",
+                       "the LUT travels with the recipe")
+    }
+
+    func testAMissingLUTIsRefusedRatherThanIgnored() {
+        var grade = VideoGrade()
+        grade.lutURL = URL(fileURLWithPath: "/no/such/look.cube")
+        let image = TestImages.solid(.red, width: 8, height: 8)
+        XCTAssertThrowsError(try Renderer.grade(image, grade),
+                             "silently skipping a LUT the caller named is worse than failing")
     }
 }

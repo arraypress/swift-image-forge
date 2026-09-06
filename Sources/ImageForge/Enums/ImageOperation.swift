@@ -13,6 +13,7 @@
 
 import CoreGraphics
 import Foundation
+import VideoGrade
 
 /// One step of an image pipeline.
 ///
@@ -21,7 +22,7 @@ import Foundation
 /// touches colour or tone — that is
 /// [VideoGrade](https://github.com/arraypress/swift-video-grade)'s job, and
 /// it composes at the same `CGImage` seam.
-public enum ImageOperation: Sendable, Codable, Equatable, Hashable {
+public enum ImageOperation: Sendable, Codable, Equatable {
     /// Scale to a target box.
     case resize(ResizeSpec)
     /// Keep part of the image.
@@ -48,6 +49,14 @@ public enum ImageOperation: Sendable, Codable, Equatable, Hashable {
     /// Composite the image onto a solid colour, discarding its alpha.
     /// What a transparent PNG needs before it becomes a JPEG.
     case flatten(ForgeColor)
+    /// Apply colour and tone: exposure, contrast, curves, split-toning, a
+    /// LUT, a film look — the whole of
+    /// [VideoGrade](https://github.com/arraypress/swift-video-grade), which
+    /// this library calls rather than reimplements.
+    ///
+    /// A grade is a `Codable` value, so a recipe carries the entire look —
+    /// including the path to a `.cube` LUT — as data.
+    case grade(VideoGrade)
     /// Apply the source's EXIF orientation to the pixels and reset the tag,
     /// so the image is upright to software that ignores the tag.
     ///
@@ -114,6 +123,8 @@ public enum ImageOperation: Sendable, Codable, Equatable, Hashable {
             case .trimTransparent: return "trim transparent edges"
             case .subject(let padding): return "crop to the subject +\(Int(padding * 100))%"
             }
+        case .grade(let grade):
+            return grade.lutURL.map { "grade with \($0.lastPathComponent)" } ?? "grade"
         case .rotate(let angle): return "rotate \(angle.rawValue)°"
         case .rotateFree(let degrees, _, let crop):
             return String(format: "rotate %.2f°%@", degrees, crop ? " and crop to fit" : "")

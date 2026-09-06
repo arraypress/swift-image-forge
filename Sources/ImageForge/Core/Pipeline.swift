@@ -89,6 +89,9 @@ public enum Pipeline {
         case .flatten(let color):
             return try Renderer.flatten(image, onto: color)
 
+        case .grade(let grade):
+            return try Renderer.grade(image, grade)
+
         case .bakeOrientation:
             // The decoder applies orientation on the way in, so by the time
             // an image reaches the pipeline it is already upright.
@@ -247,7 +250,7 @@ public enum Pipeline {
         case .pad(let spec):
             return CGSize(width: size.width + CGFloat(spec.horizontal),
                           height: size.height + CGFloat(spec.vertical))
-        case .flip, .flatten, .bakeOrientation:
+        case .flip, .flatten, .grade, .bakeOrientation:
             return size
         }
     }
