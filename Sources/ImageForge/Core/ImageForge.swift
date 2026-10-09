@@ -299,6 +299,68 @@ public enum ImageForge {
         return try ImageEncoder.write(data, to: destination, overwrites: overwrites)
     }
 
+    // MARK: - Pages
+
+    /// Turns a photograph of a page into the page: found, flattened to an
+    /// upright sheet, and cleaned up the way a scanner's lamp would have.
+    ///
+    /// ```swift
+    /// let page = try await ImageForge.scan(photo)
+    /// page.foundPage      // false when the frame had to be kept whole
+    /// page.paper          // .a4, when the shape was close enough to one
+    /// ```
+    ///
+    /// - Parameters:
+    ///   - url: The photograph.
+    ///   - page: How to find the page and what shape to give it.
+    ///   - corners: The page's corners, when the caller already knows them —
+    ///     from ``detect(_:maxPixelSize:includingQuality:)`` or a person
+    ///     — in top-left origin pixels of the photograph. Skips detection.
+    ///   - tone: How to clean it, or nil to leave the pixels as they are.
+    /// - Returns: The page and how it was made.
+    /// - Throws: Any ``ImageForgeError``.
+    public static func scan(_ url: URL, page: PageSpec = .automatic, corners: Quadrilateral? = nil,
+                            tone: DocumentTone? = .color) async throws -> ScannedPage {
+        let image = try ImageDecoder.image(at: url)
+        var found = corners
+        if found == nil {
+            found = try await Detectors.document(in: image, minimumConfidence: page.minimumConfidence)
+        }
+
+        var operations: [ImageOperation] = []
+        var paper: PaperSize?
+        if let quad = found {
+            paper = Geometry.paper(for: quad, spec: page)
+            operations.append(.perspective(quad, aspectRatio: paper?.aspectRatio))
+        }
+        if let tone { operations.append(.cleanDocument(tone)) }
+
+        return ScannedPage(image: try Pipeline.apply(operations, to: image),
+                           sourceSize: image.pixelSize, corners: found, paper: paper,
+                           operations: operations)
+    }
+
+    /// Writes pictures as a PDF, one per page, each with an optional
+    /// invisible text layer so the document can be searched and copied from.
+    ///
+    /// - Parameters:
+    ///   - pages: The pages, in order.
+    ///   - destination: The file to write.
+    ///   - maximumDPI: Downscale any picture finer than this on its page.
+    ///   - overwrites: Whether an existing file may be replaced.
+    /// - Returns: The number of bytes written.
+    /// - Throws: Any ``ImageForgeError``.
+    @discardableResult
+    public static func writePDF(_ pages: [PDFImagePage], to destination: URL,
+                                maximumDPI: Double = PDFWriter.defaultDPI,
+                                overwrites: Bool = false) throws -> Int {
+        if FileManager.default.fileExists(atPath: destination.path) && !overwrites {
+            throw ImageForgeError.destinationExists(destination)
+        }
+        return try ImageEncoder.write(try PDFWriter.data(for: pages, maximumDPI: maximumDPI),
+                                      to: destination, overwrites: overwrites)
+    }
+
     // MARK: - The job itself
 
     /// What one job produced, before it is written anywhere.
@@ -333,7 +395,8 @@ public enum ImageForge {
             let analysis = try await analyse(frames[0].image, options: options)
             let resolved = try Pipeline.resolve(options.operations, for: frames[0].image,
                                                 subject: analysis.subject,
-                                                horizonAngle: analysis.horizonAngle)
+                                                horizonAngle: analysis.horizonAngle,
+                                                document: analysis.document)
             let processed = try frames.map {
                 ImageFrame(image: try Pipeline.apply(resolved, to: $0.image), duration: $0.duration)
             }
@@ -360,7 +423,8 @@ public enum ImageForge {
         let analysis = try await analyse(image, options: options)
         var resolved = try Pipeline.resolve(options.operations, for: image,
                                             subject: analysis.subject,
-                                            horizonAngle: analysis.horizonAngle)
+                                            horizonAngle: analysis.horizonAngle,
+                                            document: analysis.document)
 
         // Nothing to do, and nothing the encode would have changed: hand back
         // the original bytes rather than re-encoding them into a worse copy.
@@ -422,6 +486,13 @@ public enum ImageForge {
     }
 
     /// What the operations need Vision to tell them, and nothing more.
+    struct Analysis {
+        var subject: Subject?
+        var horizonAngle: Double?
+        var document: Quadrilateral?
+    }
+
+    /// Runs the detectors the operations ask for, and no others.
     ///
     /// Each detector is run only if some operation actually asked for it, so
     /// an ordinary resize never loads a model at all.
@@ -429,22 +500,29 @@ public enum ImageForge {
     /// - Parameters:
     ///   - image: The image to analyse.
     ///   - options: The job, for its operations and its strategy.
-    /// - Returns: The subject and the horizon angle, either possibly nil.
-    static func analyse(_ image: CGImage,
-                        options: ProcessOptions) async throws -> (subject: Subject?, horizonAngle: Double?) {
-        var subject: Subject?
-        var horizonAngle: Double?
-
-        if options.operations.contains(where: { operation in
-            if case .straighten = operation { return false }
-            return operation.needsAnalysis
-        }) {
-            subject = try await SubjectDetector.subject(of: image, strategy: options.subject)
+    /// - Returns: The subject, the horizon angle and the page, any possibly nil.
+    static func analyse(_ image: CGImage, options: ProcessOptions) async throws -> Analysis {
+        var analysis = Analysis()
+        var wantsSubject = false, wantsHorizon = false, wantsPage = false
+        for operation in options.operations {
+            switch operation {
+            case .straighten: wantsHorizon = true
+            // The page's own floor applies in `resolve`; asking Vision with
+            // no floor here keeps that decision in one place.
+            case .findPage: wantsPage = true
+            default: if operation.needsAnalysis { wantsSubject = true }
+            }
         }
-        if options.operations.contains(where: { if case .straighten = $0 { return true } else { return false } }) {
-            horizonAngle = try await Detectors.horizonAngle(in: image)
+        if wantsSubject {
+            analysis.subject = try await SubjectDetector.subject(of: image, strategy: options.subject)
         }
-        return (subject, horizonAngle)
+        if wantsHorizon {
+            analysis.horizonAngle = try await Detectors.horizonAngle(in: image)
+        }
+        if wantsPage {
+            analysis.document = try await Detectors.document(in: image, minimumConfidence: 0)
+        }
+        return analysis
     }
 
     /// Whether this job can take the passthrough road, and at what size.

@@ -12,6 +12,7 @@
 
 import CoreGraphics
 import CoreImage
+import CoreImage.CIFilterBuiltins
 import Foundation
 import VideoGrade
 
@@ -228,6 +229,94 @@ public enum Renderer {
             throw ImageForgeError.emptyResult("rendering a grade")
         }
         return rendered
+    }
+
+    // MARK: - Pages
+
+    /// Maps four corners of an image onto an upright rectangle.
+    ///
+    /// - Parameters:
+    ///   - image: The photograph.
+    ///   - quad: The page's corners, in top-left origin pixels.
+    ///   - size: The size to deliver, from ``Geometry/flattenedSize(of:aspectRatio:)``.
+    /// - Returns: The flattened page at exactly `size`.
+    /// - Throws: ``ImageForgeError/emptyResult(_:)`` when the render fails.
+    public static func perspective(_ image: CGImage, _ quad: Quadrilateral,
+                                   size: CGSize) throws -> CGImage {
+        // Core Image measures from the bottom left; the quad does not.
+        let height = CGFloat(image.height)
+        func flipped(_ point: CGPoint) -> CGPoint { CGPoint(x: point.x, y: height - point.y) }
+
+        let filter = CIFilter.perspectiveCorrection()
+        filter.inputImage = CIImage(cgImage: image)
+        filter.topLeft = flipped(quad.topLeft)
+        filter.topRight = flipped(quad.topRight)
+        filter.bottomRight = flipped(quad.bottomRight)
+        filter.bottomLeft = flipped(quad.bottomLeft)
+        filter.crop = true
+
+        guard let output = filter.outputImage, !output.extent.isEmpty,
+              let corrected = CIContext(options: [.workingColorSpace: usableColorSpace(for: image)])
+                .createCGImage(output, from: output.extent) else {
+            throw ImageForgeError.emptyResult("flattening the page")
+        }
+        // The filter picks its own size from the corners; the caller's size
+        // is the one that knows about paper.
+        return try opaque(try scale(corrected, to: size), like: image)
+    }
+
+    /// Evens out a photographed page.
+    ///
+    /// Apple's document enhancer does the work a scanner's lamp would have
+    /// — lifting shadow off the paper and the paper's tint out of the
+    /// white — then the tone decides what colour survives it.
+    ///
+    /// - Parameters:
+    ///   - image: The flattened page.
+    ///   - tone: Colour, grey, or ink-or-paper.
+    /// - Returns: The cleaned page.
+    /// - Throws: ``ImageForgeError/emptyResult(_:)`` when the render fails.
+    public static func cleanDocument(_ image: CGImage, tone: DocumentTone) throws -> CGImage {
+        let input = CIImage(cgImage: image)
+        let enhancer = CIFilter.documentEnhancer()
+        enhancer.inputImage = input
+        enhancer.amount = 1
+        guard var output = enhancer.outputImage else {
+            throw ImageForgeError.emptyResult("cleaning the page")
+        }
+        if tone != .color {
+            let mono = CIFilter.colorControls()
+            mono.inputImage = output
+            mono.saturation = 0
+            output = mono.outputImage ?? output
+        }
+        if tone == .blackAndWhite {
+            // Otsu picks the threshold from the page's own histogram, so a
+            // dim photograph and a bright one both split at the gap between
+            // ink and paper rather than at a number chosen for neither.
+            let threshold = CIFilter.colorThresholdOtsu()
+            threshold.inputImage = output
+            output = threshold.outputImage ?? output
+        }
+        // A grey page is written as one channel, not three equal ones: a
+        // third of the pixels, and an encoder that knows it is grey.
+        let gray = CGColorSpace(name: CGColorSpace.genericGrayGamma2_2) ?? CGColorSpaceCreateDeviceGray()
+        let context = CIContext(options: [.workingColorSpace: usableColorSpace(for: image)])
+        guard let rendered = tone == .color
+            ? context.createCGImage(output, from: input.extent)
+            : context.createCGImage(output, from: input.extent, format: .L8, colorSpace: gray) else {
+            throw ImageForgeError.emptyResult("cleaning the page")
+        }
+        return try opaque(rendered, like: image)
+    }
+
+    /// Takes away an alpha channel Core Image added to an image that never
+    /// had one. Its renders come back RGBA whatever went in, and a page
+    /// that reports transparency makes every PNG of it larger and every
+    /// later step treat it as something it is not.
+    static func opaque(_ result: CGImage, like source: CGImage) throws -> CGImage {
+        guard result.hasAlphaChannel, !source.hasAlphaChannel else { return result }
+        return try flatten(result, onto: .white)
     }
 
     // MARK: - Contexts

@@ -96,6 +96,18 @@ public enum Pipeline {
             // The decoder applies orientation on the way in, so by the time
             // an image reaches the pipeline it is already upright.
             return image
+
+        case .findPage:
+            // Needs the page's corners, which need Vision; `resolve` turns
+            // this into a plain `.perspective` first.
+            throw ImageForgeError.requiresAsynchronousProcessing
+
+        case .perspective(let quad, let aspectRatio):
+            return try Renderer.perspective(image, quad,
+                                            size: Geometry.flattenedSize(of: quad, aspectRatio: aspectRatio))
+
+        case .cleanDocument(let tone):
+            return try Renderer.cleanDocument(image, tone: tone)
         }
     }
 
@@ -113,11 +125,15 @@ public enum Pipeline {
     ///     it should do.
     ///   - horizonAngle: How far the horizon is from level, in degrees, from
     ///     ``Detectors/horizonAngle(in:)``. Nil leaves the picture alone.
+    ///   - document: The page's corners on `image`, from
+    ///     ``Detectors/document(in:minimumConfidence:)``. Nil keeps the
+    ///     frame whole.
     /// - Returns: The same steps with nothing left that needs analysis.
     /// - Throws: Whatever the geometry throws.
     public static func resolve(_ operations: [ImageOperation], for image: CGImage,
                                subject: Subject? = nil,
-                               horizonAngle: Double? = nil) throws -> [ImageOperation] {
+                               horizonAngle: Double? = nil,
+                               document: Quadrilateral? = nil) throws -> [ImageOperation] {
         guard operations.contains(where: { $0.needsAnalysis || $0.expandsToCrop }) else {
             return operations
         }
@@ -144,6 +160,14 @@ public enum Pipeline {
                 size = cropToFit
                     ? Geometry.largestInscribedSize(in: size, rotatedBy: horizonAngle)
                     : Geometry.rotatedBounds(of: size, degrees: horizonAngle)
+
+            case .findPage(let spec):
+                // No page, or one the detector is not sure of: keep the frame.
+                guard let document, document.confidence >= spec.minimumConfidence else { break }
+                let quad = scale(document, of: image, into: size)
+                let aspectRatio = Geometry.paper(for: quad, spec: spec)?.aspectRatio
+                resolved.append(.perspective(quad, aspectRatio: aspectRatio))
+                size = Geometry.flattenedSize(of: quad, aspectRatio: aspectRatio)
 
             case .crop(.subject(let padding)):
                 // Nothing found means no crop at all: cropping to a guess is
@@ -217,6 +241,23 @@ public enum Pipeline {
                       width: rect.width * x, height: rect.height * y)
     }
 
+    /// Moves a quadrilateral found on the original image into the
+    /// coordinates of a scaled one.
+    ///
+    /// - Parameters:
+    ///   - quad: The shape on the original image.
+    ///   - image: The image it was found on.
+    ///   - size: The size to scale it into.
+    /// - Returns: The shape in the new coordinates.
+    static func scale(_ quad: Quadrilateral, of image: CGImage, into size: CGSize) -> Quadrilateral {
+        guard image.width > 0, image.height > 0 else { return quad }
+        let x = size.width / CGFloat(image.width), y = size.height / CGFloat(image.height)
+        func moved(_ point: CGPoint) -> CGPoint { CGPoint(x: point.x * x, y: point.y * y) }
+        return Quadrilateral(topLeft: moved(quad.topLeft), topRight: moved(quad.topRight),
+                             bottomRight: moved(quad.bottomRight),
+                             bottomLeft: moved(quad.bottomLeft), confidence: quad.confidence)
+    }
+
     /// The size an operation leaves behind, without doing the work.
     ///
     /// Used while resolving, to keep track of what the next step will be
@@ -245,12 +286,14 @@ public enum Pipeline {
             return cropToFit
                 ? Geometry.largestInscribedSize(in: size, rotatedBy: degrees)
                 : Geometry.rotatedBounds(of: size, degrees: degrees)
-        case .straighten:
+        case .straighten, .findPage:
             return size
+        case .perspective(let quad, let aspectRatio):
+            return Geometry.flattenedSize(of: quad, aspectRatio: aspectRatio)
         case .pad(let spec):
             return CGSize(width: size.width + CGFloat(spec.horizontal),
                           height: size.height + CGFloat(spec.vertical))
-        case .flip, .flatten, .grade, .bakeOrientation:
+        case .flip, .flatten, .grade, .bakeOrientation, .cleanDocument:
             return size
         }
     }

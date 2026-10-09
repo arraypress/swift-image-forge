@@ -47,6 +47,12 @@ try await ImageForge.process(photo, to: attachment,
   shot
 - 📐 **Straighten** — `.straighten()` levels a picture on Vision's horizon and
   cuts back to the largest rectangle with none of the empty corners in it
+- 📄 **Scanning** — `ImageForge.scan` finds the page in a photograph of one,
+  flattens it with a perspective correction, gives it A4, Letter or Legal's
+  exact shape when it is within 4% of one, and cleans it in colour, grey or
+  black and white. `writePDF` puts pages into a PDF as JPEG data with an
+  optional invisible text layer, so a reader's words make it searchable. The
+  steps are recipe operations too: `.findPage`, `.perspective`, `.cleanDocument`
 - 📉 **Byte budgets** — "under 500 KB" is answered by searching quality in a
   fixed eight encodes, and refused with a message telling you to resize when
   no quality can reach it
@@ -141,6 +147,25 @@ runs, a photograph was tilted by known amounts and the reading taken: +3° in
 gave +3.00° back, −6° gave −6.00°, +8° gave +8.13°. Levelling is therefore a
 turn by the negation, which is what `.straighten()` does.
 
+**Scanning, on synthetic pages.** An A4 page of real text, warped onto a
+2400 px desk by a known perspective at seven tilts, from square-on to the far
+edge 30% narrower than the near one. At every tilt: Vision found the page at
+0.99, **no corner was more than 18 px out (0.75% of the frame)**, the
+flattened shape snapped to A4, and all six lines read back exactly. Two
+honest limits. The recogniser read the *unflattened* photograph just as well,
+so what scanning buys is the artefact — a straight, searchable page a person
+can file — not better OCR. And the warp narrows the far edge without
+shortening the page as a real lens does, so how often a real phone photo
+lands within 4% of A4 is **not yet measured on real photographs**; when it
+does not, the measured shape is kept rather than forced. The text layer was
+probed through PDFKit: it reads back verbatim, and a search highlights the
+word within a few points of where the picture shows it.
+
+**Core Image adds alpha.** Its renders come back RGBA whatever went in, so a
+flattened JPEG reported transparency and wrote a larger PNG. The page steps
+take the alpha away again when the source had none — found by running the
+CLI, not by a test, and now tested.
+
 **Negative rectangles.** `CGRect.width` reports the absolute value, so an
 inset that eats the whole image comes back as a positive rectangle facing
 backwards. Sizes are checked as plain numbers before a rectangle is built —
@@ -148,10 +173,14 @@ a test caught this, not a review.
 
 ## What this library does not do
 
-Colour and tone. No exposure, contrast, curves, LUTs or film looks: that is
+Colour and tone — with one exception, `.cleanDocument`, which evens out a
+photographed page the way a scanner's lamp would and is no more a look than
+flattening transparency is. No exposure, contrast, curves, LUTs or film looks: that is
 [VideoGrade](https://github.com/arraypress/swift-video-grade), which is a
 `CGImage → CGImage` engine and composes at exactly the seam this pipeline
-works in. Nor anything with a model behind it — background removal, upscaling,
+works in. Nor reading text: `scan` makes the page, and
+[DocumentReader](https://github.com/arraypress/swift-document-reader) reads it
+— `writePDF` takes the lines it found. Nor anything with a model behind it — background removal, upscaling,
 inpainting and description are their own libraries. This one is the
 deterministic transform pipeline, and it stops there.
 

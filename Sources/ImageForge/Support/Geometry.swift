@@ -241,6 +241,53 @@ public enum Geometry {
                               height: size.width * sinA + size.height * cosA))
     }
 
+    // MARK: - Pages
+
+    /// The size a photographed page comes to once flattened.
+    ///
+    /// Each side is the longer of the two edges that face each other: the
+    /// edge nearer the camera is the one foreshortening shrank least, so it
+    /// is the better estimate of the paper.
+    ///
+    /// - Parameters:
+    ///   - quad: The page's corners, in top-left origin pixels.
+    ///   - aspectRatio: Long side over short side to force, or nil to keep
+    ///     the measured shape. The longer measured side is kept and the
+    ///     other is derived from it, so forcing a shape never throws away
+    ///     resolution the photograph had.
+    /// - Returns: The size in pixels, the right way up for the page.
+    public static func flattenedSize(of quad: Quadrilateral, aspectRatio: Double? = nil) -> CGSize {
+        let width = max(distance(quad.topLeft, quad.topRight),
+                        distance(quad.bottomLeft, quad.bottomRight))
+        let height = max(distance(quad.topLeft, quad.bottomLeft),
+                         distance(quad.topRight, quad.bottomRight))
+        guard let aspectRatio, aspectRatio > 0 else {
+            return rounded(CGSize(width: width, height: height))
+        }
+        return height >= width
+            ? rounded(CGSize(width: height / aspectRatio, height: height))
+            : rounded(CGSize(width: width, height: width / aspectRatio))
+    }
+
+    /// The sheet a flattened page should take the shape of: the one forced,
+    /// a standard one close to what was measured, or nil to keep the
+    /// measured shape.
+    ///
+    /// - Parameters:
+    ///   - quad: The page's corners.
+    ///   - spec: The caller's wishes about paper.
+    /// - Returns: The sheet, or nil.
+    public static func paper(for quad: Quadrilateral, spec: PageSpec) -> PaperSize? {
+        if let paper = spec.paper { return paper }
+        guard spec.snapsToPaper else { return nil }
+        return PaperSize.nearest(to: flattenedSize(of: quad))
+    }
+
+    /// The straight-line distance between two points.
+    static func distance(_ a: CGPoint, _ b: CGPoint) -> CGFloat {
+        hypot(b.x - a.x, b.y - a.y)
+    }
+
     /// Rounds a size to whole pixels, never below one.
     static func rounded(_ size: CGSize) -> CGSize {
         CGSize(width: max(1, size.width.rounded()), height: max(1, size.height.rounded()))

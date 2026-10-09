@@ -11,6 +11,9 @@
 //
 
 import CoreGraphics
+import CoreImage
+import CoreImage.CIFilterBuiltins
+import CoreText
 import CoreVideo
 import Foundation
 import ImageIO
@@ -186,6 +189,65 @@ enum TestImages {
         }
         context.restoreGState()
         return context.makeImage()!
+    }
+
+    /// The words printed on ``photographedPage(tilt:)``, top to bottom.
+    static let pageLines = ["INVOICE 20417", "Northwind Trading Ltd", "14 Harbour Street, Leeds",
+                            "Total due: 1,284.50 GBP", "Payment within thirty days",
+                            "Thank you for your business"]
+
+    /// An A4 page of real text, photographed at an angle on a dark desk —
+    /// a perspective, not a rotation, so the far edge is shorter than the
+    /// near one, as a phone held over a page makes it.
+    ///
+    /// - Parameter tilt: How strongly to foreshorten, 0 to about 0.2.
+    /// - Returns: The photograph, and the page's true corners in it, in
+    ///   top-left origin pixels.
+    static func photographedPage(tilt: CGFloat = 0.1) -> (image: CGImage, corners: Quadrilateral) {
+        let width = 1240, height = 1754   // A4 at 150 dpi
+        let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8,
+                                bytesPerRow: 0, space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                bitmapInfo: CGImageAlphaInfo.noneSkipFirst.rawValue
+                                    | CGBitmapInfo.byteOrder32Little.rawValue)!
+        context.setFillColor(CGColor(red: 0.96, green: 0.95, blue: 0.92, alpha: 1))
+        context.fill(CGRect(x: 0, y: 0, width: width, height: height))
+        let font = CTFontCreateWithName("Helvetica" as CFString, CGFloat(width) / 22, nil)
+        for (index, text) in pageLines.enumerated() {
+            let line = CTLineCreateWithAttributedString(NSAttributedString(string: text, attributes: [
+                NSAttributedString.Key(kCTFontAttributeName as String): font,
+                NSAttributedString.Key(kCTForegroundColorAttributeName as String): CGColor(gray: 0.1, alpha: 1),
+            ]))
+            context.textPosition = CGPoint(x: CGFloat(width) * 0.08,
+                                           y: CGFloat(height) * (0.88 - CGFloat(index) * 0.1))
+            CTLineDraw(line, context)
+        }
+        let flat = context.makeImage()!
+
+        // Core Image corners, bottom-left origin, on a 2400 square desk: an
+        // A4 sheet 1300 px across at its near (bottom) edge and 1840 tall,
+        // its far edge narrowed by the tilt and the whole thing turned a
+        // little, as a hand-held phone leaves it.
+        let side: CGFloat = 2400
+        let inset = 1300 * tilt / 2
+        let topLeft = CGPoint(x: 520 + inset, y: 2090), topRight = CGPoint(x: 1820 - inset, y: 2050)
+        let bottomRight = CGPoint(x: 1850, y: 230), bottomLeft = CGPoint(x: 550, y: 270)
+        let warp = CIFilter.perspectiveTransform()
+        warp.inputImage = CIImage(cgImage: flat)
+        warp.topLeft = topLeft
+        warp.topRight = topRight
+        warp.bottomRight = bottomRight
+        warp.bottomLeft = bottomLeft
+        let desk = CIImage(color: CIColor(red: 0.18, green: 0.2, blue: 0.24))
+            .cropped(to: CGRect(x: 0, y: 0, width: side, height: side))
+        // Opaque, as a camera's JPEG is; Core Image's render is not.
+        let photo = try! Renderer.flatten(
+            CIContext().createCGImage(warp.outputImage!.composited(over: desk), from: desk.extent)!,
+            onto: .black)
+
+        func flipped(_ point: CGPoint) -> CGPoint { CGPoint(x: point.x, y: side - point.y) }
+        return (photo, Quadrilateral(topLeft: flipped(topLeft), topRight: flipped(topRight),
+                                     bottomRight: flipped(bottomRight),
+                                     bottomLeft: flipped(bottomLeft), confidence: 1))
     }
 
     /// A directory that cleans itself up.

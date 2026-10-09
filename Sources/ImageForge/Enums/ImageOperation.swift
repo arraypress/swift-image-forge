@@ -63,6 +63,25 @@ public enum ImageOperation: Sendable, Codable, Equatable {
     /// The pipeline does this for you when the source needs it; the case
     /// exists so a recipe can be explicit.
     case bakeOrientation
+    /// Find the page in a photograph of one and flatten it, as a scanner
+    /// would have seen it.
+    ///
+    /// Resolved into a ``perspective(_:aspectRatio:)`` with the corners
+    /// Vision found. When no page is found — or one is found below the
+    /// spec's confidence floor — it resolves to nothing and the frame is
+    /// kept whole, since flattening a guess distorts the very text the
+    /// scan is for.
+    case findPage(PageSpec)
+    /// Map four corners onto an upright rectangle, undoing the angle a page
+    /// was photographed at.
+    ///
+    /// `aspectRatio` is the long side over the short side of the result;
+    /// nil keeps the shape measured from the corners, which foreshortening
+    /// makes approximate.
+    case perspective(Quadrilateral, aspectRatio: Double?)
+    /// Even out a photographed page: lift the shadows off the paper, take
+    /// the tint out of it, and sharpen the ink. See ``DocumentTone``.
+    case cleanDocument(DocumentTone)
 
     /// Level the picture using the horizon, cropping away the corners.
     ///
@@ -82,7 +101,7 @@ public enum ImageOperation: Sendable, Codable, Equatable {
         switch self {
         case .crop(let spec): return spec.needsAnalysis
         case .resize(let spec): return spec.mode.crops && spec.anchor.needsAnalysis
-        case .straighten: return true
+        case .straighten, .findPage: return true
         default: return false
         }
     }
@@ -133,6 +152,10 @@ public enum ImageOperation: Sendable, Codable, Equatable {
         case .pad(let spec): return "pad \(spec.top)/\(spec.left)/\(spec.bottom)/\(spec.right)"
         case .flatten(let color): return "flatten onto \(color.hex)"
         case .bakeOrientation: return "bake orientation"
+        case .findPage: return "find the page"
+        case .perspective(let quad, _):
+            return String(format: "flatten a page leaning %.1f°", quad.skewAngle)
+        case .cleanDocument(let tone): return "clean as a \(tone.rawValue) document"
         }
     }
 }
