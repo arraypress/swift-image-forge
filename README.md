@@ -161,6 +161,32 @@ does not, the measured shape is kept rather than forced. The text layer was
 probed through PDFKit: it reads back verbatim, and a search highlights the
 word within a few points of where the picture shows it.
 
+**Scanning, on real photographs.** Sixteen photos from Wikimedia Commons
+(public domain and CC BY / BY-SA — receipts, a letter, a page on a stack, plus
+flat scans and two non-pages as controls), run through `img scan` 0.5.0 in
+3.4 s together:
+
+| | |
+|---|---|
+| A whole receipt or page on a contrasting surface (6) | 5 found and flattened cleanly — a crumpled till roll, a Spanish card slip, a hotel bill, an old handwritten letter, the top sheet of a stack. **Missed:** a receipt on yellow continuous-form paper over a yellow cloth — too little contrast for Vision's page detector |
+| A receipt cut off by the frame (3) | all 3 found, cropped to the paper |
+| White paper on a white table (1) | found at 0.94, flattened |
+| Flat scans and screenshots (4) | all kept whole, "no page found" — the right answer |
+| Not a page: a folder on a desk, a framed sign (2) | the folder kept whole; the sign found at 0.85 and flattened — a sign is a rectangle |
+
+- **OCR is the same either way when the photo is near square-on**, and better
+  when it is not: an A4 letter shot at a steep angle read 7 lines raw and 14
+  flattened (address and salutation recovered). Totals and dates read the same
+  before and after on every receipt.
+- **Foreshortening is real, and large.** That steep A4 letter measured 1.14
+  long side over short (true: 1.414), 19% off — far outside the 4% snap, so it
+  kept its squashed shape. Snapping helps only photos taken nearly square-on,
+  where the measured shape was close already.
+- **Snapping by shape alone misfires on slips.** A Swiss hotel bill measured
+  1.648 and became US Legal (1.647); the framed sign became Letter. Harmless to
+  the pixels — the shape barely changes — but the PDF page is the wrong sheet.
+  `--paper none` keeps the measured size.
+
 **Core Image adds alpha.** Its renders come back RGBA whatever went in, so a
 flattened JPEG reported transparency and wrote a larger PNG. The page steps
 take the alpha away again when the source had none — found by running the
