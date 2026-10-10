@@ -15,8 +15,10 @@ import Foundation
 public struct PageSpec: Sendable, Codable, Equatable, Hashable {
     /// Force the result to this sheet's shape, whatever was measured.
     public var paper: PaperSize?
-    /// When no sheet is forced, use a standard sheet's shape if the measured
-    /// page is within a few percent of one. See ``PaperSize/nearest(to:tolerance:)``.
+    /// When no sheet is forced, use A4's or Letter's shape if the measured
+    /// page is within 2% of one. Off by default: measured on real photographs
+    /// it named the wrong sheet twice and the right one never. See
+    /// ``PaperSize/nearest(to:tolerance:)``.
     public var snapsToPaper: Bool
     /// The detector confidence below which the page is treated as not found.
     /// See ``Detectors/MinimumConfidence/document``.
@@ -26,13 +28,15 @@ public struct PageSpec: Sendable, Codable, Equatable, Hashable {
     ///   - paper: A sheet to force the shape to, or nil to measure it.
     ///   - snapsToPaper: Snap a measured shape to a nearby standard sheet.
     ///   - minimumConfidence: The detector floor.
-    public init(paper: PaperSize? = nil, snapsToPaper: Bool = true,
+    public init(paper: PaperSize? = nil, snapsToPaper: Bool = false,
                 minimumConfidence: Double = Detectors.MinimumConfidence.document) {
         self.paper = paper
         self.snapsToPaper = snapsToPaper
         self.minimumConfidence = minimumConfidence
     }
 
-    /// Measure the page, snapping to A4, Letter or Legal when it is close.
+    /// Measure the page and keep the shape measured.
     public static let automatic = PageSpec()
+    /// Measure the page, and take A4's or Letter's shape when within 2%.
+    public static let snapping = PageSpec(snapsToPaper: true)
 }

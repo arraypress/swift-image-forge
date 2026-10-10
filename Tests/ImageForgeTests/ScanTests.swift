@@ -49,15 +49,22 @@ final class ScanTests: XCTestCase {
         XCTAssertEqual(PaperSize.nearest(to: CGSize(width: 1240, height: 1754)), .a4)
         XCTAssertEqual(PaperSize.nearest(to: CGSize(width: 1754, height: 1240)), .a4, "either way up")
         XCTAssertEqual(PaperSize.nearest(to: CGSize(width: 850, height: 1100)), .letter)
-        XCTAssertEqual(PaperSize.nearest(to: CGSize(width: 850, height: 1400)), .legal)
+        XCTAssertNil(PaperSize.nearest(to: CGSize(width: 850, height: 1400)), "Legal is never guessed")
+        // The two wrong answers real photographs got from a 4% tolerance.
+        XCTAssertNil(PaperSize.nearest(to: CGSize(width: 1000, height: 1608)), "a hotel bill is not Legal")
+        XCTAssertNil(PaperSize.nearest(to: CGSize(width: 1000, height: 1260)), "a sign is not Letter")
         XCTAssertNil(PaperSize.nearest(to: CGSize(width: 600, height: 2400)), "a receipt is no sheet")
         XCTAssertNil(PaperSize.nearest(to: CGSize(width: 1000, height: 1000)))
     }
 
     func testAPageSizeIsTheSheetOrTheResolution() {
-        XCTAssertEqual(PDFWriter.pageSize(forPixels: CGSize(width: 2480, height: 3508)), PaperSize.a4.points)
-        let landscape = PDFWriter.pageSize(forPixels: CGSize(width: 3300, height: 2550))
+        XCTAssertEqual(PDFWriter.pageSize(forPixels: CGSize(width: 2480, height: 3508), paper: .a4), PaperSize.a4.points)
+        let landscape = PDFWriter.pageSize(forPixels: CGSize(width: 3300, height: 2550), paper: .letter)
         XCTAssertEqual(landscape, CGSize(width: 792, height: 612), "Letter, turned")
+        // No sheet named: the picture's own size at 300 dpi, never a guess.
+        let own = PDFWriter.pageSize(forPixels: CGSize(width: 2480, height: 3508))
+        XCTAssertEqual(own.width, 595.2, accuracy: 0.001)
+        XCTAssertEqual(own.height, 841.92, accuracy: 0.001)
         // A 600×2400 receipt at 300 dpi is 2 × 8 inches.
         XCTAssertEqual(PDFWriter.pageSize(forPixels: CGSize(width: 600, height: 2400)),
                        CGSize(width: 144, height: 576))
@@ -119,7 +126,9 @@ final class ScanTests: XCTestCase {
                                                        spec: EncodeSpec(format: .png)),
                                to: url, overwrites: true)
 
-        let page = try await ImageForge.scan(url)
+        let measured = try await ImageForge.scan(url)
+        XCTAssertNil(measured.paper, "no sheet is guessed by default")
+        let page = try await ImageForge.scan(url, page: .snapping)
         XCTAssertTrue(page.foundPage)
         XCTAssertEqual(page.paper, .a4)
         let ratio = Double(page.image.height) / Double(page.image.width)

@@ -48,8 +48,8 @@ try await ImageForge.process(photo, to: attachment,
 - 📐 **Straighten** — `.straighten()` levels a picture on Vision's horizon and
   cuts back to the largest rectangle with none of the empty corners in it
 - 📄 **Scanning** — `ImageForge.scan` finds the page in a photograph of one,
-  flattens it with a perspective correction, gives it A4, Letter or Legal's
-  exact shape when it is within 4% of one, and cleans it in colour, grey or
+  flattens it with a perspective correction, keeps the shape it measured (or
+  A4/Letter's within 2% when asked — `.snapping`; shape alone misnamed real pages), and cleans it in colour, grey or
   black and white. `writePDF` puts pages into a PDF as JPEG data with an
   optional invisible text layer, so a reader's words make it searchable. The
   steps are recipe operations too: `.findPage`, `.perspective`, `.cleanDocument`
@@ -183,9 +183,12 @@ flat scans and two non-pages as controls), run through `img scan` 0.5.0 in
   kept its squashed shape. Snapping helps only photos taken nearly square-on,
   where the measured shape was close already.
 - **Snapping by shape alone misfires on slips.** A Swiss hotel bill measured
-  1.648 and became US Legal (1.647); the framed sign became Letter. Harmless to
-  the pixels — the shape barely changes — but the PDF page is the wrong sheet.
-  `--paper none` keeps the measured size.
+  1.608 and became US Legal (1.647, 2.4% away); the framed sign measured 1.260
+  and became Letter (2.6% away). Across all ten pages found, shape matching
+  named the right sheet **never** and the wrong one twice. **So from 0.4.0 it
+  is off by default** — the measured shape is kept, and a PDF page takes the
+  picture's own size at 300 dpi — and `.snapping` / `--paper auto` opts in at
+  2% (under both misfires), A4 and Letter only.
 
 **Core Image adds alpha.** Its renders come back RGBA whatever went in, so a
 flattened JPEG reported transparency and wrote a larger PNG. The page steps

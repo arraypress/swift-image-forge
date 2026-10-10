@@ -6,9 +6,8 @@
 //
 //  The sheets a photographed page is most likely to be. A perspective
 //  correction recovers a page's shape only approximately — foreshortening
-//  makes the far edge look shorter than it is — so when the corrected shape
-//  is within a few percent of a real sheet, the real sheet is the better
-//  answer.
+//  makes the far edge look shorter than it is — and on real photographs the
+//  shape alone proved too weak to name the sheet, so matching is opt-in.
 //
 
 import CoreGraphics
@@ -39,22 +38,26 @@ public enum PaperSize: String, CaseIterable, Sendable, Codable, Hashable {
     public var aspectRatio: Double { Double(points.height / points.width) }
 
     /// The sheet whose shape is closest to a measured one, if any is close
-    /// enough to be believed.
+    /// enough to be believed. Only A4 and Letter are offered: they are the
+    /// sheets a shape could plausibly be, and Legal was one of the two wrong
+    /// answers this gave on real photographs.
     ///
-    /// A4 and A5 share a shape, so a page that matches both comes back as
-    /// A4, the commoner of the two.
+    /// MEASURED on ten real photographed pages (Wikimedia Commons): shape
+    /// matching never once named the right sheet, and named the wrong one
+    /// twice — a Swiss hotel bill measured 1.608 and became Legal (2.4% off),
+    /// a framed sign 1.260 and became Letter (2.6% off), while a real A4
+    /// letter shot at an angle measured 1.14, foreshortened far past any
+    /// tolerance. So matching is something a caller opts into, at 2% — under
+    /// both wrong answers — and the default keeps the measured shape.
     ///
     /// - Parameters:
     ///   - size: The measured page, either way up.
-    ///   - tolerance: How far the shapes may differ, as a fraction. Letter
-    ///     (1.294) and A4 (1.414) are 9% apart, so anything much over 0.04
-    ///     starts confusing the two.
-    /// - Returns: The sheet, or nil when nothing is that close — a receipt,
-    ///   a business card, a page torn from a notebook.
-    public static func nearest(to size: CGSize, tolerance: Double = 0.04) -> PaperSize? {
+    ///   - tolerance: How far the shapes may differ, as a fraction.
+    /// - Returns: The sheet, or nil when nothing is that close.
+    public static func nearest(to size: CGSize, tolerance: Double = 0.02) -> PaperSize? {
         guard size.width > 0, size.height > 0 else { return nil }
         let ratio = Double(max(size.width, size.height) / min(size.width, size.height))
-        return [PaperSize.a4, .letter, .legal]
+        return [PaperSize.a4, .letter]
             .map { ($0, abs($0.aspectRatio - ratio) / $0.aspectRatio) }
             .filter { $0.1 <= tolerance }
             .min { $0.1 < $1.1 }?.0

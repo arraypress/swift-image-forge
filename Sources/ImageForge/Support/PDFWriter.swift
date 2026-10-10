@@ -33,17 +33,20 @@ public enum PDFWriter {
 
     /// The size a page should be, in points.
     ///
+    /// The sheet's size when one is named, the picture's own size at `dpi`
+    /// otherwise — never a sheet guessed from the shape, which on real
+    /// photographs guessed wrong (see ``PaperSize/nearest(to:tolerance:)``).
+    ///
     /// - Parameters:
     ///   - pixels: The picture's size in pixels.
-    ///   - paper: A sheet to use, or nil to try the nearest standard one and
-    ///     fall back to `dpi`.
-    ///   - dpi: The resolution to assume when no sheet fits.
+    ///   - paper: The sheet, if one was named or matched.
+    ///   - dpi: The resolution to assume otherwise.
     /// - Returns: The page size, turned to match the picture.
     public static func pageSize(forPixels pixels: CGSize, paper: PaperSize? = nil,
                                 dpi: Double = defaultDPI) -> CGSize {
         guard pixels.width > 0, pixels.height > 0 else { return PaperSize.a4.points }
-        if let sheet = paper ?? PaperSize.nearest(to: pixels) {
-            let points = sheet.points
+        if let paper {
+            let points = paper.points
             return pixels.width > pixels.height
                 ? CGSize(width: points.height, height: points.width)
                 : points
