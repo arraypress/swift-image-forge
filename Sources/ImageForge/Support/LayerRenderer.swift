@@ -4,9 +4,10 @@
 //
 //  Created by David Sherlock on 2026.
 //
-//  The pixels of a composition, in Core Image: float, linear, premultiplied
-//  throughout, so a soft edge composited onto white keeps no dark fringe and
-//  values above 1 survive to an HDR-capable output.
+//  The pixels of a composition, in Core Image: float and premultiplied
+//  throughout, so a soft edge composited onto white keeps no dark fringe;
+//  blended in extended sRGB (gamma-encoded, like Photoshop), so opacities
+//  mean what a designer means and values above 1 still survive.
 //
 //  Effects follow Photoshop's layer styles for what they mean (stroke
 //  outside the edge, shadow by offset and softness, glow around the edge);
@@ -37,8 +38,12 @@ enum LayerRenderer {
         picture = picture.cropped(to: extent)
 
         let output = outputFormat(for: composition)
+        // Blend in gamma-encoded sRGB, as Photoshop, browsers and ffmpeg do,
+        // not Core Image's default linear light: a 50% black shadow on white
+        // is then 128 grey, as a designer means it, not 188. Extended range,
+        // so values above 1 still survive.
         let context = CIContext(options: [
-            .workingColorSpace: CGColorSpace(name: CGColorSpace.extendedLinearSRGB) as Any,
+            .workingColorSpace: CGColorSpace(name: CGColorSpace.extendedSRGB) as Any,
         ])
         guard let rendered = context.createCGImage(picture, from: extent,
                                                    format: output.format, colorSpace: output.space) else {

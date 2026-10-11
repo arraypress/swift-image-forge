@@ -170,6 +170,19 @@ final class ComposeTests: XCTestCase {
         print("COMPOSE glow: alpha at edge \(f.alpha(120, 100)), at radius \(f.alpha(135, 100)), beyond \(f.alpha(160, 100))")
     }
 
+    func testOpacityBlendsLikePhotoshopInSRGB() throws {
+        // A hard 50% black shadow on white is mid-grey 128 in Photoshop
+        // (gamma-space blending), not the 188 linear-light blending gives.
+        let layer = CompositeLayer(image: Self.square(20), style: LayerStyle(
+            placement: LayerPlacement(anchor: .topLeft),
+            effects: LayerEffects(shadow: DropShadow(offsetX: 40, offsetY: 0, blur: 0, opacity: 0.5))))
+        let out = try ImageForge.compose(Composition(backdrop: .color(.white), size: CGSize(width: 80, height: 20),
+                                                     layers: [layer]))
+        let f = Self.floats(out)
+        XCTAssertEqual(f.at(50, 10).r, 0.5, accuracy: 1.0 / 255, "50% black on white reads \(f.at(50, 10).r * 255)")
+        print("COMPOSE 50% black shadow on white: \(f.at(50, 10).r * 255) of 255")
+    }
+
     func testTransparentCanvasStaysTransparentOutsideTheLayers() throws {
         let layer = CompositeLayer(image: Self.square(30), style: LayerStyle(
             effects: LayerEffects(stroke: LayerStroke(width: 4),

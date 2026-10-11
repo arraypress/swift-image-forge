@@ -219,7 +219,7 @@ let shot = try ImageForge.compose(Composition(
 - **Stroke** sits outside the layer's edge, like Photoshop's stroke with its position set to Outside; the layer itself is never covered.
 - **Shadow `blur` and glow `radius`** are softening distances: a Gaussian with σ = value / 3, faded to nothing that far past an edge.
 - **Effects start from the layer's silhouette** in their colour (source-in), which keeps the colour colour-managed. A colour-matrix bias would set it in the linear working space, so an sRGB 50% grey would come out at 0.73.
-- **Blending** is source-over only. The rest of Photoshop's styles wait for an app that needs them.
+- **Blending** is source-over only, in gamma-encoded extended sRGB, as Photoshop, browsers and ffmpeg blend. Core Image's default linear light would make a 50% black shadow on white 188 grey instead of 128. The working space is extended, so values above 1 survive. The rest of Photoshop's styles wait for an app that needs them.
 
 Measured on synthetic layers (`ComposeTests`):
 
@@ -233,6 +233,8 @@ Measured on synthetic layers (`ComposeTests`):
 | Transparent canvas, layer with stroke + shadow + glow | alpha and colour exactly 0 past the effects |
 | A value of 4.0 in extended linear sRGB | comes back 4.0 in a 16-bit result |
 | Anchor bottom-right, inset 7 px | lands on the exact pixel |
+| A hard 50% black shadow on white | 128 of 255, as in Photoshop |
+| A real `cutout` PNG (stock parrot, soft mask) over blue vs ffmpeg's RGB overlay | max difference 1/255, mean 0.06, over 262,144 pixels |
 
 ## What this library does not do
 
