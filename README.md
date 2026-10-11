@@ -236,6 +236,29 @@ Measured on synthetic layers (`ComposeTests`):
 | A hard 50% black shadow on white | 128 of 255, as in Photoshop |
 | A real `cutout` PNG (stock parrot, soft mask) over blue vs ffmpeg's RGB overlay | max difference 1/255, mean 0.06, over 262,144 pixels |
 
+## Grading inside a region (0.6)
+
+`.gradeWithin(grade, region)` grades only where a mask is and leaves every other pixel exactly
+as it was — measured on a noisy 8-bit PNG through the whole `process` road: **0 of 1,536**
+pixels outside the mask changed, all 1,536 inside were brightened by +1 stop. The edge is
+feathered (`feather` px, a Gaussian with σ = feather / 3) and never steps back across it.
+
+The region is either a mask you already have (`.mask(RegionMask)`) or a **name**
+(`.named("sky", minimumScore:, feather:)`), which a recipe keeps as the name so a replay finds
+the sky in each new picture. ImageForge runs no segmentation model: pass a resolver —
+
+```swift
+try await ImageForge.process(photo, to: out, options: options) { name, image, minimumScore in
+    try await segmenter.mask(of: name, in: image, minimumScore: Float(minimumScore)).map {
+        RegionMask(width: $0.width, height: $0.height, pixels: Data($0.pixels), feather: 0)
+    }
+}
+```
+
+— `img grade --mask sky` uses swift-concept-segmenter (SAM 3). A name with no resolver throws
+`requiresAsynchronousProcessing`; a name that is not in the picture throws `emptyResult`. The
+mask is found on the decoded picture and stretched to it if a caller resized in between.
+
 ## What this library does not do
 
 Colour and tone — with one exception, `.cleanDocument`, which evens out a

@@ -57,6 +57,11 @@ public enum ImageOperation: Sendable, Codable, Equatable {
     /// A grade is a `Codable` value, so a recipe carries the entire look —
     /// including the path to a `.cube` LUT — as data.
     case grade(VideoGrade)
+
+    /// A grade inside a region only — everything outside is left exactly as
+    /// it was. A `.named` region needs the asynchronous entry point and a
+    /// resolver; see ``GradeRegion``.
+    case gradeWithin(VideoGrade, GradeRegion)
     /// Apply the source's EXIF orientation to the pixels and reset the tag,
     /// so the image is upright to software that ignores the tag.
     ///
@@ -102,6 +107,7 @@ public enum ImageOperation: Sendable, Codable, Equatable {
         case .crop(let spec): return spec.needsAnalysis
         case .resize(let spec): return spec.mode.crops && spec.anchor.needsAnalysis
         case .straighten, .findPage: return true
+        case .gradeWithin(_, .named): return true
         default: return false
         }
     }
@@ -144,6 +150,12 @@ public enum ImageOperation: Sendable, Codable, Equatable {
             }
         case .grade(let grade):
             return grade.lutURL.map { "grade with \($0.lastPathComponent)" } ?? "grade"
+        case .gradeWithin(let grade, let region):
+            let base = grade.lutURL.map { "grade with \($0.lastPathComponent)" } ?? "grade"
+            switch region {
+            case .named(let name, _, _): return "\(base) within \(name)"
+            case .mask: return "\(base) within a mask"
+            }
         case .rotate(let angle): return "rotate \(angle.rawValue)°"
         case .rotateFree(let degrees, _, let crop):
             return String(format: "rotate %.2f°%@", degrees, crop ? " and crop to fit" : "")

@@ -132,13 +132,20 @@ public enum ImageForge {
     ///   - options: What to do and how to write it.
     /// - Returns: What happened, including whether an HDR gain map survived.
     /// - Throws: Any ``ImageForgeError``.
+    /// Finds a named region in an image — `"sky"` → its mask at the image's
+    /// size (``RegionMask``, `feather` ignored), or `nil` when there is none.
+    /// ImageForge runs no segmentation model; the caller supplies one.
+    public typealias RegionResolver = @Sendable (_ name: String, _ image: CGImage,
+                                                 _ minimumScore: Double) async throws -> RegionMask?
+
     @discardableResult
     public static func process(_ source: URL, to destination: URL,
-                               options: ProcessOptions) async throws -> ProcessResult {
+                               options: ProcessOptions,
+                               regions: RegionResolver? = nil) async throws -> ProcessResult {
         if FileManager.default.fileExists(atPath: destination.path) && !options.overwrites {
             throw ImageForgeError.destinationExists(destination)
         }
-        let outcome = try await encode(source, options: options)
+        let outcome = try await encode(source, options: options, regions: regions)
         try ImageEncoder.write(outcome.data, to: destination, overwrites: options.overwrites)
 
         return ProcessResult(source: source, destination: destination,
@@ -160,8 +167,9 @@ public enum ImageForge {
     ///   - options: What to do and how to encode it.
     /// - Returns: The encoded image.
     /// - Throws: Any ``ImageForgeError``.
-    public static func process(_ source: URL, options: ProcessOptions) async throws -> Data {
-        try await encode(source, options: options).data
+    public static func process(_ source: URL, options: ProcessOptions,
+                               regions: RegionResolver? = nil) async throws -> Data {
+        try await encode(source, options: options, regions: regions).data
     }
 
     /// Runs the same job over many files, writing each into a directory.
@@ -176,7 +184,8 @@ public enum ImageForge {
     ///   - options: What to do and how to write it.
     /// - Returns: One result per input, in order.
     public static func process(_ sources: [URL], into directory: URL,
-                               options: ProcessOptions) async -> [Result<ProcessResult, Error>] {
+                               options: ProcessOptions,
+                               regions: RegionResolver? = nil) async -> [Result<ProcessResult, Error>] {
         var results: [Result<ProcessResult, Error>] = []
         results.reserveCapacity(sources.count)
 
@@ -186,7 +195,7 @@ public enum ImageForge {
                 let destination = directory
                     .appendingPathComponent(source.deletingPathExtension().lastPathComponent)
                     .appendingPathExtension(format.fileExtension)
-                results.append(.success(try await process(source, to: destination, options: options)))
+                results.append(.success(try await process(source, to: destination, options: options, regions: regions)))
             } catch {
                 results.append(.failure(error))
             }
@@ -376,7 +385,8 @@ public enum ImageForge {
 
     /// Reads a source, applies the operations and encodes the result,
     /// choosing between the passthrough and render roads.
-    static func encode(_ source: URL, options: ProcessOptions) async throws -> Outcome {
+    static func encode(_ source: URL, options: ProcessOptions,
+                       regions: RegionResolver? = nil) async throws -> Outcome {
         let before = try ImageDecoder.describe(source)
         let format = try options.encode.format ?? resolvedFormat(of: source)
         try FormatSupport.requireWritable(format)
@@ -392,8 +402,9 @@ public enum ImageForge {
             let frames = try ImageDecoder.frames(at: source)
             // The subject is found once, on the first frame: an animation
             // whose crop wandered from frame to frame would be unwatchable.
+            let named = try await resolveRegions(options.operations, in: frames[0].image, with: regions)
             let analysis = try await analyse(frames[0].image, options: options)
-            let resolved = try Pipeline.resolve(options.operations, for: frames[0].image,
+            let resolved = try Pipeline.resolve(named, for: frames[0].image,
                                                 subject: analysis.subject,
                                                 horizonAngle: analysis.horizonAngle,
                                                 document: analysis.document)
@@ -420,8 +431,9 @@ public enum ImageForge {
 
         // The render road.
         let image = try ImageDecoder.image(at: source, maxPixelSize: decodeHint(for: options))
+        let named = try await resolveRegions(options.operations, in: image, with: regions)
         let analysis = try await analyse(image, options: options)
-        var resolved = try Pipeline.resolve(options.operations, for: image,
+        var resolved = try Pipeline.resolve(named, for: image,
                                             subject: analysis.subject,
                                             horizonAngle: analysis.horizonAngle,
                                             document: analysis.document)
@@ -492,6 +504,29 @@ public enum ImageForge {
         var document: Quadrilateral?
     }
 
+    /// Turns every named region into a mask, with the caller's resolver.
+    ///
+    /// - Throws: ``ImageForgeError/requiresAsynchronousProcessing`` when a
+    ///   region is named and no resolver was given;
+    ///   ``ImageForgeError/emptyResult(_:)`` when the name is not in the picture.
+    static func resolveRegions(_ operations: [ImageOperation], in image: CGImage,
+                               with regions: RegionResolver?) async throws -> [ImageOperation] {
+        var out: [ImageOperation] = []
+        for operation in operations {
+            guard case .gradeWithin(let grade, .named(let name, let minimumScore, let feather)) = operation else {
+                out.append(operation)
+                continue
+            }
+            guard let regions else { throw ImageForgeError.requiresAsynchronousProcessing }
+            guard let found = try await regions(name, image, minimumScore) else {
+                throw ImageForgeError.emptyResult("no \(name) in the picture")
+            }
+            out.append(.gradeWithin(grade, .mask(RegionMask(width: found.width, height: found.height,
+                                                            pixels: found.pixels, feather: feather))))
+        }
+        return out
+    }
+
     /// Runs the detectors the operations ask for, and no others.
     ///
     /// Each detector is run only if some operation actually asked for it, so
@@ -510,6 +545,8 @@ public enum ImageForge {
             // The page's own floor applies in `resolve`; asking Vision with
             // no floor here keeps that decision in one place.
             case .findPage: wantsPage = true
+            // A named region is the resolver's job, not Vision's.
+            case .gradeWithin: break
             default: if operation.needsAnalysis { wantsSubject = true }
             }
         }

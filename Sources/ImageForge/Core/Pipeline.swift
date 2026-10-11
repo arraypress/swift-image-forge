@@ -92,6 +92,14 @@ public enum Pipeline {
         case .grade(let grade):
             return try Renderer.grade(image, grade)
 
+        case .gradeWithin(let grade, .mask(let mask)):
+            return try RegionBlend.grade(image, grade, within: mask)
+
+        case .gradeWithin(_, .named):
+            // Needs a resolver; `ImageForge.process(_:to:options:regions:)`
+            // turns the name into a mask first.
+            throw ImageForgeError.requiresAsynchronousProcessing
+
         case .bakeOrientation:
             // The decoder applies orientation on the way in, so by the time
             // an image reaches the pipeline it is already upright.
@@ -293,7 +301,7 @@ public enum Pipeline {
         case .pad(let spec):
             return CGSize(width: size.width + CGFloat(spec.horizontal),
                           height: size.height + CGFloat(spec.vertical))
-        case .flip, .flatten, .grade, .bakeOrientation, .cleanDocument:
+        case .flip, .flatten, .grade, .gradeWithin, .bakeOrientation, .cleanDocument:
             return size
         }
     }
