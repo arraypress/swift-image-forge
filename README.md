@@ -65,6 +65,11 @@ try await ImageForge.process(photo, to: attachment,
   thin by stride
 - 🍎 **Icons** — `.icns` and `.ico` containers and `@1x/@2x/@3x` sets, with the
   sizes each container *actually* accepts (they are not the ones you expect)
+- 🧩 **Compositing** — layers onto a colour, a picture or transparency, each
+  with an outside stroke, a drop shadow and an outer glow (Photoshop's layer
+  styles, by definition); anchors with insets in px or %, fit-to-canvas, and a
+  canvas that sizes itself to a sticker and everything it casts. Float and
+  premultiplied throughout, so soft edges keep no fringe and HDR survives
 - 📐 **Arithmetic you can test** — every rectangle is worked out in `Geometry`,
   in top-left origin pixels, with no image in sight
 - 📋 **Recipes are data** — `[ImageOperation]` is `Codable`, so a job is a JSON
@@ -200,6 +205,35 @@ inset that eats the whole image comes back as a positive rectangle facing
 backwards. Sizes are checked as plain numbers before a rectangle is built —
 a test caught this, not a review.
 
+## Compositing (0.5)
+
+```swift
+// A product shot: the cut-out at 80% of a white square, with a soft shadow.
+let shot = try ImageForge.compose(Composition(
+    backdrop: .color(.white), size: CGSize(width: 1200, height: 1200),
+    layers: [CompositeLayer(image: cutout, style: LayerStyle(
+        placement: LayerPlacement(size: .fit(0.8)),
+        effects: LayerEffects(shadow: DropShadow(offsetY: 24, blur: 40))))]))
+```
+
+- **Stroke** sits outside the layer's edge, like Photoshop's stroke with its position set to Outside; the layer itself is never covered.
+- **Shadow `blur` and glow `radius`** are softening distances: a Gaussian with σ = value / 3, faded to nothing that far past an edge.
+- **Effects start from the layer's silhouette** in their colour (source-in), which keeps the colour colour-managed. A colour-matrix bias would set it in the linear working space, so an sRGB 50% grey would come out at 0.73.
+- **Blending** is source-over only. The rest of Photoshop's styles wait for an app that needs them.
+
+Measured on synthetic layers (`ComposeTests`):
+
+| Check | Result |
+|---|---|
+| Core Image blur radius vs Gaussian σ, 3–24 px | radius = σ within 4%, so σ = blur / 3 is exact |
+| Shadow offset (300, 14), blur 30 | edges at 320…440 and 234, as asked; edge goes from 90% to 10% over 26 px (2.563σ = 25.6) |
+| Stroke 6 px on a 40 px square | 52 px covered; outline #808080 reads 0.502 in sRGB |
+| Glow radius 15 | 0.46 alpha at the edge, 0.0 at 15 px |
+| Soft-alpha white disc on white, at 1×, 0.5× and 1.7× | max deviation from white **0.0** (no fringe) |
+| Transparent canvas, layer with stroke + shadow + glow | alpha and colour exactly 0 past the effects |
+| A value of 4.0 in extended linear sRGB | comes back 4.0 in a 16-bit result |
+| Anchor bottom-right, inset 7 px | lands on the exact pixel |
+
 ## What this library does not do
 
 Colour and tone — with one exception, `.cleanDocument`, which evens out a
@@ -215,11 +249,11 @@ deterministic transform pipeline, and it stops there.
 
 ## Requirements
 
-macOS 15+ / iOS 18+ / tvOS 18+ / watchOS 11+ / visionOS 2+, Swift 6.
+macOS 26+ / iOS 26+, Swift 6.2 (Xcode 26).
 
-The floor is set by two things that arrived together: the HDR gain-map encode
+The floor is VideoGrade's (macOS 26), which grading needs. Before that, the HDR gain-map encode
 keys (`kCGImageDestinationPreserveGainMap`, `EncodeToISOHDR`) and the
-Swift-native Vision request API used for smart cropping.
+Swift-native Vision request API set it at macOS 15.
 
 ## License
 

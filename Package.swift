@@ -17,7 +17,7 @@ let package = Package(
     dependencies: [
         // The colour and tone engine. Pure Core Image, no dependencies of its
         // own; this library calls it rather than reimplementing it.
-        .package(url: "https://github.com/arraypress/swift-video-grade.git", from: "0.1.1"),
+        .package(url: "https://github.com/arraypress/swift-video-grade.git", from: "0.2.2"),
     ],
     targets: [
         .target(
