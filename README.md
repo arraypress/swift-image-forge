@@ -259,6 +259,38 @@ try await ImageForge.process(photo, to: out, options: options) { name, image, mi
 `requiresAsynchronousProcessing`; a name that is not in the picture throws `emptyResult`. The
 mask is found on the decoded picture and stretched to it if a caller resized in between.
 
+## Collages (0.7)
+
+```swift
+let result = try await ImageForge.collage(photos, to: out,
+    spec: CollageSpec(layout: .masonry, width: 1080, height: 1920, gap: 12, radius: 24))
+result.cells   // where each photo went, and which part of it shows
+```
+
+Seven layouts — `grid`, `masonry` (justified rows), `columns`, `feature` (one hero
+across two thirds), `strip`, `polaroid` (framed prints, seeded scatter) and `split`
+(magazine 2/3/4-ups, `diagonal` for two). `CollageSpec` is Codable, so a layout can be
+saved and laid over other photos; the background writes as `{"color": "#2B2B2B"}` or
+`{"image": "/path"}`. `collage(_:spec:)` returns the picture in memory instead.
+
+- **Exact pixels.** Every layout is built on one primitive that divides a length into
+  weighted parts with whole-pixel gaps, rounding the running total rather than each
+  part — so rows meet the far edge exactly and every gap is the gap asked for. Tested
+  for every layout: no overlaps, nothing outside the margins, masonry widths in
+  proportion to the photos' shapes to within a pixel, columns with a straight bottom.
+- **Smart crops.** `.fill` centres each crop on every face, person or animal together
+  (a group keeps its heads), else on the **largest** salient region. Not the union:
+  on an owl placed bottom-left, objectness also returned two texture patches, and
+  their union centred the crop above its head. After the fix the crop's centre sits
+  on the owl's (0 px vertical offset; 102 px horizontal, where the frame edge stops it).
+- **Seeded.** The polaroid scatter and `.shuffle` use SplitMix64, the same on every
+  machine; the result reports the seed used, so a scatter that worked can be kept.
+- **iOS-safe**: Core Graphics, Core Text and Vision only.
+
+Measured on an M3 Max (release build, GPU shared with another job): 10 stock photos,
+masonry 1920×2400 — **0.74 s** with `.fit`, **4.5 s** with `.fill` (about 0.4 s a photo
+for the detectors), **31 s** the first time Vision loads its models.
+
 ## What this library does not do
 
 Colour and tone — with one exception, `.cleanDocument`, which evens out a

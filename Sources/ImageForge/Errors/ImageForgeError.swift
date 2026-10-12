@@ -47,6 +47,9 @@ public enum ImageForgeError: Error, LocalizedError, Sendable, Equatable {
     /// An icon container was asked for a size it does not accept. Carries
     /// the sizes it does — they are not the round numbers you would expect.
     case iconSizeUnsupported(ImageFormat, size: Int, supported: [Int])
+    /// A collage that cannot be laid out as asked — too many photos for the
+    /// layout, or gaps and margins that leave no room for the pictures.
+    case collageImpossible(String)
 
     /// A lowercase phrase that reads inside a sentence, for a CLI or a log.
     public var errorDescription: String? {
@@ -80,6 +83,8 @@ public enum ImageForgeError: Error, LocalizedError, Sendable, Equatable {
         case .iconSizeUnsupported(let format, let size, let supported):
             let list = supported.map(String.init).joined(separator: ", ")
             return "\(format.rawValue) does not accept \(size)px icons; it takes \(list)"
+        case .collageImpossible(let why):
+            return why
         }
     }
 }
