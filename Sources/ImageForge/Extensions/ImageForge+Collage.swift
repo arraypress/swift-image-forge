@@ -76,9 +76,11 @@ public extension ImageForge {
             if spec.fit == .fill {
                 let subject = await Self.collageFocus(of: image)
                 focus = subject?.kind
-                let point = subject.map { CGPoint(x: $0.rect.midX, y: $0.rect.midY) }
                 let target = slot.outline.map { CollagePlanner.bounds($0) } ?? slot.photo
-                crop = CollagePlanner.crop(image.pixelSize, aspect: Double(target.width / target.height), focus: point)
+                let aspect = Double(target.width / target.height)
+                crop = CollagePlanner.crop(image.pixelSize, aspect: aspect, subject: subject?.rect,
+                                           emphasis: await Self.collageEmphasis(of: image, subject: subject,
+                                                                                aspect: aspect))
             }
             let caption = spec.captions ? Self.caption(for: sources[order[slot.index]]) : nil
             pieces.append(CollageRenderer.Piece(image: image, caption: caption, crop: crop))
@@ -112,6 +114,20 @@ public extension ImageForge {
             return (rect, kind)
         }
         return nil
+    }
+
+    /// Where to centre a crop that cannot hold its subject whole: the
+    /// largest attention region's centre, when the subject is an animal or
+    /// an object and attention lands inside it. Asked only when the subject
+    /// overflows, so a crop that fits costs no second Vision pass.
+    internal static func collageEmphasis(of image: CGImage, subject: (rect: CGRect, kind: SubjectKind)?,
+                                         aspect: Double) async -> CGPoint? {
+        guard let subject, CollagePlanner.asksForEmphasis(subject.kind),
+              !CollagePlanner.cropHolds(image.pixelSize, aspect: aspect, subject: subject.rect),
+              let regions = try? await SubjectDetector.regions(of: image, kind: .attention),
+              let attention = CollagePlanner.focus(regions, kind: .attention) else { return nil }
+        let point = CGPoint(x: attention.midX, y: attention.midY)
+        return subject.rect.contains(point) ? point : nil
     }
 
     /// A file name as a caption: `beach_day-2` reads "beach day 2".

@@ -283,6 +283,19 @@ saved and laid over other photos; the background writes as `{"color": "#2B2B2B"}
   on an owl placed bottom-left, objectness also returned two texture patches, and
   their union centred the crop above its head. After the fix the crop's centre sits
   on the owl's (0 px vertical offset; 102 px horizontal, where the frame edge stops it).
+- **A subject too big for its slot keeps what matters** (0.7.1). In a photobooth strip
+  every stock animal is taller than its slot, and centring on the box kept the
+  penguin's chest and cut off its head. When an animal or object overflows a side, the
+  crop now centres on Vision's attention point along that side — measured on the
+  penguin, zebra, owl and parrot, it sat on the head every time (penguin box 117…512,
+  attention centre 208). A person found without a face keeps the top of the box. The
+  attention pass runs only when a subject overflows.
+- **Captions stay readable** (0.7.1). Polaroid prints are drawn bottom row first, so
+  each row's caption border lies over the photos below rather than under them, and
+  prints no longer overlap sideways, where a neighbour's tilt reached the caption.
+  Captions are cut to the middle 60% of the border. Tested by turning every print and
+  checking each caption zone against every print drawn after it: 2,200 layouts (five
+  canvas shapes, 2–12 prints, 40 seeds), none covered.
 - **Seeded.** The polaroid scatter and `.shuffle` use SplitMix64, the same on every
   machine; the result reports the seed used, so a scatter that worked can be kept.
 - **iOS-safe**: Core Graphics, Core Text and Vision only.

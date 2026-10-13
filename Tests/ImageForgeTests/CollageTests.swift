@@ -134,6 +134,36 @@ final class CollageTests: XCTestCase {
         }
     }
 
+    func testEveryPolaroidCaptionStaysUncovered() throws {
+        // Drawn top row first, the row below lay over every caption above it
+        // (measured on an 8-print 16:9 collage). Every caption zone is now
+        // checked against every print drawn after it, across shapes, counts
+        // and seeds.
+        let canvases = [(2400, 1350), (1350, 2400), (2400, 2400), (1920, 2400), (2000, 1500)]
+        for (width, height) in canvases {
+            for count in 2...12 {
+                for seed in UInt64(1)...40 {
+                    let spec = CollageSpec(layout: .polaroid, width: width, height: height, margin: 40)
+                    let slots = try CollagePlanner.plan(spec, aspects: Array(repeating: 1, count: count), seed: seed)
+                    XCTAssertEqual(CollagePlanner.coveredCaptions(slots), [],
+                                   "\(width)×\(height), \(count) prints, seed \(seed): a caption is covered")
+                }
+            }
+        }
+    }
+
+    func testOverlapNeedsSharedAreaAndFollowsTheTurn() {
+        let square = CollageGeometry.corners(of: CGRect(x: 0, y: 0, width: 10, height: 10), turnedBy: 0,
+                                             about: CGRect(x: 0, y: 0, width: 10, height: 10))
+        let beside = CollageGeometry.corners(of: CGRect(x: 10, y: 0, width: 10, height: 10), turnedBy: 0,
+                                             about: CGRect(x: 10, y: 0, width: 10, height: 10))
+        XCTAssertFalse(CollageGeometry.convexPolygonsOverlap(square, beside), "touching is not overlapping")
+        // Turned 45° about its own centre, the neighbour's corner swings into the square.
+        let turned = CollageGeometry.corners(of: CGRect(x: 10.5, y: 0, width: 10, height: 10), turnedBy: 45,
+                                             about: CGRect(x: 10.5, y: 0, width: 10, height: 10))
+        XCTAssertTrue(CollageGeometry.convexPolygonsOverlap(square, turned))
+    }
+
     func testShuffleIsAPermutationAndRepeatable() {
         let shuffled = CollagePlanner.order(20, .shuffle, seed: 7)
         XCTAssertEqual(shuffled.sorted(), Array(0..<20))
@@ -155,6 +185,32 @@ final class CollageTests: XCTestCase {
         XCTAssertTrue(right.contains(CGPoint(x: 3500, y: 800)))
         let left = CollagePlanner.crop(size, aspect: 1, focus: CGPoint(x: 1300, y: 800))
         XCTAssertEqual(left.midX, 1300)
+    }
+
+    func testASubjectTooTallForItsSlotKeepsWhatMatters() {
+        // Measured boxes from the stock penguin (512×512): objectness
+        // 117…512 tall, attention centred at y 208 on its head. A
+        // photobooth slot crops 224 tall; centring on the box kept its middle
+        // and cut the head off.
+        let size = CGSize(width: 512, height: 512)
+        let penguin = CGRect(x: 110, y: 117, width: 367, height: 395)
+        let aspect = 512.0 / 224
+        XCTAssertFalse(CollagePlanner.cropHolds(size, aspect: aspect, subject: penguin))
+        let centred = CollagePlanner.crop(size, aspect: aspect, focus: CGPoint(x: penguin.midX, y: penguin.midY))
+        XCTAssertGreaterThan(centred.minY, 200, "centring is what cut the head off")
+        let emphasised = CollagePlanner.crop(size, aspect: aspect, subject: penguin, emphasis: CGPoint(x: 218, y: 208))
+        XCTAssertEqual(emphasised.midY, 208, accuracy: 1)
+        // No emphasis (a person found without a face): keep the top.
+        let top = CollagePlanner.crop(size, aspect: aspect, subject: penguin)
+        XCTAssertLessThanOrEqual(top.minY, penguin.minY)
+        // A subject the crop holds whole is centred, emphasis or not.
+        let small = CGRect(x: 200, y: 300, width: 100, height: 80)
+        XCTAssertEqual(CollagePlanner.crop(size, aspect: aspect, subject: small,
+                                           emphasis: CGPoint(x: 10, y: 10)).midY, small.midY, accuracy: 1)
+        XCTAssertTrue(CollagePlanner.asksForEmphasis(.object))
+        XCTAssertTrue(CollagePlanner.asksForEmphasis(.animal))
+        XCTAssertFalse(CollagePlanner.asksForEmphasis(.person))
+        XCTAssertFalse(CollagePlanner.asksForEmphasis(.face))
     }
 
     func testFocusKeepsEveryFaceButOnlyTheLargestSalientRegion() {

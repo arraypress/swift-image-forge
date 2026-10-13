@@ -104,9 +104,9 @@ enum CollageRenderer {
 
             if let caption = piece.caption, !caption.isEmpty {
                 if polaroid {
-                    let band = CGRect(x: slot.rect.minX, y: slot.photo.maxY,
-                                      width: slot.rect.width, height: slot.rect.maxY - slot.photo.maxY)
-                    drawText(caption, centredIn: band, size: band.height * 0.3,
+                    // Only the middle of the border: a neighbour may lie over its ends.
+                    let zone = CollagePlanner.captionZone(of: slot)
+                    drawText(caption, centredIn: zone, size: zone.height * 0.3,
                              color: CGColor(gray: 0.2, alpha: 1), shadow: false, context)
                 } else {
                     let size = max(12, min(slot.photo.height * 0.06, longSide * 0.022))

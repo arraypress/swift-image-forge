@@ -340,17 +340,26 @@ enum CollagePlanner {
     }
 
     /// Instant-film prints, scattered. Each print sits on a grid position,
-    /// nudged and turned by the seed, and is a little bigger than its cell
-    /// so neighbours overlap. The photo is square, with the classic thick
-    /// bottom border.
+    /// nudged and turned by the seed, and overlaps its neighbours a little.
+    /// The photo is square, with the classic thick bottom border.
+    ///
+    /// Returned in DRAWING order, bottom row first. A print's caption is on
+    /// its bottom border, and the row below overlaps exactly that border —
+    /// drawn top row first, every caption but the last row's was covered.
+    /// Drawn bottom row first, each row's captions lie over the tops of the
+    /// photos below instead. Sideways the prints stand apart, tilted, so no
+    /// turn reaches the caption zone (``captionZone(of:)``); a test checks every
+    /// zone against every print drawn after it.
     static func polaroid(_ count: Int, in area: CGRect, seed: UInt64) -> [Slot] {
         var random = SeededRandom(seed: seed)
         let cols = autoColumns(count, area: area, aspect: 0.82)
         let rows = Int((Double(count) / Double(cols)).rounded(.up))
         let cellW = Double(area.width) / Double(cols), cellH = Double(area.height) / Double(rows)
         // A print is the photo plus 6% borders and a 22% bottom: 1.12 wide
-        // for 1.28 tall per unit of photo.
-        let unit = min(cellW, cellH * 1.12 / 1.28)
+        // for 1.28 tall per unit of photo. At most 92% of its cell's width:
+        // prints overlap the row above, never the print beside them, because
+        // sideways is where a neighbour's tilt reaches into a caption.
+        let unit = min(cellW * 0.92 / 1.12, cellH * 1.12 / 1.28)
         let photoSide = unit, side = unit * 0.06, bottom = unit * 0.22
         let printW = photoSide + 2 * side, printH = photoSide + side + bottom
         var slots: [Slot] = []
@@ -359,7 +368,7 @@ enum CollagePlanner {
             let inRow = r == rows - 1 ? count - r * cols : cols
             // A short last row is centred rather than left-aligned.
             let offset = Double(cols - inRow) * cellW / 2
-            let cx = Double(area.minX) + offset + (Double(c) + 0.5) * cellW + random.uniform(-0.08, 0.08) * cellW
+            let cx = Double(area.minX) + offset + (Double(c) + 0.5) * cellW + random.uniform(-0.04, 0.04) * cellW
             let cy = Double(area.minY) + (Double(r) + 0.5) * cellH + random.uniform(-0.08, 0.08) * cellH
             // Kept inside the area, with room for the corners a turn swings out.
             let padX = printW * 0.56, padY = printH * 0.56
@@ -369,7 +378,32 @@ enum CollagePlanner {
             let photo = CGRect(x: rect.minX + side, y: rect.minY + side, width: photoSide, height: photoSide)
             slots.append(Slot(index: i, rect: rect, photo: photo, rotation: random.uniform(-7, 7)))
         }
-        return slots
+        // Bottom row first; left to right within a row.
+        return slots.sorted { a, b in
+            let ra = a.index / cols, rb = b.index / cols
+            return ra != rb ? ra > rb : a.index < b.index
+        }
+    }
+
+    /// Where a polaroid's caption may be written: the middle 60% of its
+    /// bottom border, in the print's own (unturned) coordinates. The text
+    /// is cut to this width, so nothing a neighbour may cover is ever text.
+    static func captionZone(of slot: Slot) -> CGRect {
+        let band = CGRect(x: slot.rect.minX, y: slot.photo.maxY,
+                          width: slot.rect.width, height: slot.rect.maxY - slot.photo.maxY)
+        return band.insetBy(dx: band.width * 0.2, dy: 0)
+    }
+
+    /// The prints whose caption zone a print drawn after them covers, by
+    /// their position in `slots` (drawing order). Empty when every caption
+    /// can be read.
+    static func coveredCaptions(_ slots: [Slot]) -> [Int] {
+        let prints = slots.map { CollageGeometry.corners(of: $0.rect, turnedBy: $0.rotation, about: $0.rect) }
+        return slots.indices.filter { i in
+            let zone = CollageGeometry.corners(of: captionZone(of: slots[i]), turnedBy: slots[i].rotation,
+                                               about: slots[i].rect)
+            return prints[(i + 1)...].contains { CollageGeometry.convexPolygonsOverlap(zone, $0) }
+        }
     }
 
     /// A value held between two bounds, or a fallback when the bounds have
@@ -389,15 +423,60 @@ enum CollagePlanner {
     ///   - focus: The point to centre on, in top-left pixels; nil centres.
     /// - Returns: The crop, in top-left pixels, whole numbers.
     static func crop(_ size: CGSize, aspect: Double, focus: CGPoint?) -> CGRect {
+        crop(size, aspect: aspect, subject: focus.map { CGRect(origin: $0, size: .zero) })
+    }
+
+    /// The width and height of the largest crop of a shape inside an image.
+    static func cropSize(_ size: CGSize, aspect: Double) -> (width: Double, height: Double) {
         let imageAspect = Double(size.width / size.height)
-        let w = imageAspect > aspect ? Double(size.height) * aspect : Double(size.width)
-        let h = imageAspect > aspect ? Double(size.height) : Double(size.width) / aspect
-        let centre = focus ?? CGPoint(x: size.width / 2, y: size.height / 2)
-        let x = min(max(0, Double(centre.x) - w / 2), Double(size.width) - w)
-        let y = min(max(0, Double(centre.y) - h / 2), Double(size.height) - h)
+        return imageAspect > aspect ? (Double(size.height) * aspect, Double(size.height))
+                                    : (Double(size.width), Double(size.width) / aspect)
+    }
+
+    /// Whether the largest crop of a shape can hold a subject whole.
+    static func cropHolds(_ size: CGSize, aspect: Double, subject: CGRect) -> Bool {
+        let crop = cropSize(size, aspect: aspect)
+        return Double(subject.width) <= crop.width && Double(subject.height) <= crop.height
+    }
+
+    /// The largest crop of a given shape inside an image, around a subject.
+    ///
+    /// Centred on the subject along every side the crop can hold it whole.
+    /// Along a side it cannot — a tall subject in a wide, short slot — the
+    /// crop centres on `emphasis`, the part of the subject that matters
+    /// (Vision's attention point: on the stock photos it sat on the head of
+    /// a penguin, a zebra and an owl alike), or with no emphasis keeps the
+    /// subject's TOP with a little headroom. Centring there is what kept a
+    /// penguin's middle and cut off its head.
+    ///
+    /// - Parameters:
+    ///   - size: The image, in pixels.
+    ///   - aspect: The crop's width over height.
+    ///   - subject: What to keep, in top-left pixels; nil centres.
+    ///   - emphasis: Where to centre along a side the subject overflows.
+    /// - Returns: The crop, in top-left pixels, whole numbers.
+    static func crop(_ size: CGSize, aspect: Double, subject: CGRect?, emphasis: CGPoint? = nil) -> CGRect {
+        let (w, h) = cropSize(size, aspect: aspect)
+        let box = subject ?? CGRect(x: size.width / 2, y: size.height / 2, width: 0, height: 0)
+        let left = Double(box.width) > w ? Double(emphasis?.x ?? box.midX) - w / 2 : Double(box.midX) - w / 2
+        let top: Double
+        if Double(box.height) > h {
+            top = emphasis.map { Double($0.y) - h / 2 } ?? Double(box.minY) - h * 0.06
+        } else {
+            top = Double(box.midY) - h / 2
+        }
+        let x = min(max(0, left), Double(size.width) - w)
+        let y = min(max(0, top), Double(size.height) - h)
         return CGRect(x: x.rounded(), y: y.rounded(), width: w.rounded(), height: h.rounded())
             .intersection(CGRect(origin: .zero, size: size))
     }
+
+    /// Whether a subject of this kind is worth asking where its emphasis
+    /// lies when it overflows a crop. Animals and objects: the attention
+    /// point finds their heads. A person found without a face keeps the top
+    /// (``crop(_:aspect:subject:emphasis:)`` with no emphasis), and a face or
+    /// attention region is already the part that matters.
+    static func asksForEmphasis(_ kind: SubjectKind) -> Bool { kind == .animal || kind == .object }
 
     /// The region a crop centres on, from one detector's findings: all of
     /// them for faces, people and animals, the largest for saliency.
