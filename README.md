@@ -171,7 +171,7 @@ word within a few points of where the picture shows it.
 flat scans and two non-pages as controls), run through `img scan` 0.5.0 in
 3.4 s together:
 
-| | |
+| Photos | Result |
 |---|---|
 | A whole receipt or page on a contrasting surface (6) | 5 found and flattened cleanly — a crumpled till roll, a Spanish card slip, a hotel bill, an old handwritten letter, the top sheet of a stack. **Missed:** a receipt on yellow continuous-form paper over a yellow cloth — too little contrast for Vision's page detector |
 | A receipt cut off by the frame (3) | all 3 found, cropped to the paper |
